@@ -1,0 +1,367 @@
+---
+title: "Titanic - Learning from the Disaster"
+author: "Mireia Mora, Jose Antonio Montero"
+date: "04/12/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(tidyverse)
+#install.packages("DescTools")
+library(DescTools)
+```
+
+## __\textcolor{red}{1. Descripció del Dataset }__
+
+### __Lectura de dades.__
+
+En primer lloc, llegiu el fitxer de dades i verifiqueu que els tipus de dades són interpretats correctament. 
+
+Si s’escau, feu les conversions de tipus que siguin oportunes.
+
+```{r 1.Lectura de dades}
+#install.packages("stringr")
+library(stringr)
+## LLegim ele csv amb la sentencia read.csv i fem summary
+setwd("D:/UOC_ML/S1-Tipologia i Cicle Vida Dades/PAC/PRAC2")
+titanic <- read.csv("train_titanic.csv", dec=".", stringsAsFactors = FALSE)
+summary(titanic)
+#tipus de cada variable
+sapply(titanic,class)
+#a few data
+head(as.matrix(titanic),3)
+
+#llegim el dataset de test
+titanic_test <- read.csv("test_titanic.csv", dec=".", stringsAsFactors = FALSE)
+summary(titanic_test)
+#tipus de cada variable
+sapply(titanic,class)
+#a few data
+head(as.matrix(titanic),3)
+
+
+```
+\newpage
+
+## __\textcolor{red}{2. Integración y selección de los datos de interés a analizar }__
+
+En aquest apartat també farem screening i creació de noves variables / discretització.
+
+
+````{r 2. integracion y seleccion}
+
+#estructura
+str(titanic)
+
+
+
+
+
+
+#gráficos
+
+#par(mfrow=c(2,2))
+par(mfrow=c(3,3))
+
+
+#1) Boxplot de Price -> quantitativa continua
+#boxplot(childseats$Advertising,main="Advertising Box plot", col="gray")
+
+
+```
+
+\newpage
+
+## __\textcolor{red}{3. Neteja de dades}__
+
+### __3.1 Reducció.__
+
+\textcolor{blue}{Dintre de la neteja de dades una de les opcions és la __reducció__ que consisteix a eliminar variables redundants o que no estan relacionades amb el fet que es vol analitzar.}
+
+```{r 3.1	Reducció - esborrat atributs no necessaris}
+
+##Esborrarem les variables Cabin,Ticket,Name,PassengerId
+##Una vegada tiguem calculada la IsAlone també esborrarem Parch,SibSp i FamilySize
+
+titanic = titanic[,!(names(titanic) %in% c("Ticket","Cabin","Name","PassengerId"))]
+titanic_test = titanic_test[,!(names(titanic_test) %in% c("Ticket","Cabin","Name","PassengerId"))]
+
+#titanic = titanic[,!(names(titanic) %in% c("Parch","SibSp","FamilySize"))]
+#titanic_test = titanic_test[,!(names(titanic_test) %in% c("Parch","SibSp","FamilySize"))]
+
+```
+
+
+```{r salt a exercici 3.2}
+
+```
+
+### __3.2 Identificació i tractament de valors extrems.__
+
+\textcolor{blue}{Tractament de outliers.} 
+
+
+```{r 3.2 Outliers}
+
+#crearem grafics boxplot per a cada una de les variables regressores
+#que ens interesen
+
+
+```
+
+
+### __3.3 Dades perdudes - missing data.__
+
+\textcolor{blue}{Les dades contenen ceros o elements buits? Com gestionaries cadascun d'aquests casos?.}
+
+Anem a evaluar quines variables tenen valors nulls o no informats (amb "") i les 
+completarem i discretitzarem si escau.
+
+Ademés, de cara a fer prediccions i sobretot si volem fer regressió logística és adequat que les variables convertides __quedin com a tipus factor__ en R.
+
+
+```{r 3.3 Missing data}
+
+#
+#missing values
+#
+
+colSums(is.na(titanic))
+#a train tenim bàsicament null values a Age, 177
+
+colSums(titanic=="")
+#a train tenim valors perduts no nulls a Cabin i a Embarked
+
+colSums(is.na(titanic_test))
+#a train tenim bàsicament null values a Age 86 i 1 a Fare
+
+colSums(titanic_test=="")
+#a train tenim valors perduts no nulls a Cabin 
+
+#
+# Embarked
+#
+
+#Al set de traing tenim 2 missing values que son "", no son pas NA
+#Els completem amb el valor més freqüent
+#Discretitzem Embarked - convertim Embarked a numeric (0-2 son 3 valors)
+
+#Crearem una funció on passem una columna de dataframe i ens la retorna discretitzada
+
+clean_Embarked <- function (cp) {
+  #asignamos los 2 "" el valor més freqüent freq_embarked
+  freq_embarked <- tail(names(sort(table(cp))), 1)
+  cp[cp==""] <- freq_embarked
+  #discretitzem
+  cp[cp=='S'] <- 0
+  cp[cp=='C'] <- 1
+  cp[cp=='Q'] <- 2
+  cp<-as.factor(cp)
+  return(cp)
+}
+
+#Train
+titanic %>% count(Embarked)
+titanic$Embarked <- clean_Embarked(titanic$Embarked)
+titanic %>% count(Embarked)
+
+#Test
+titanic_test %>% count(Embarked)
+titanic_test$Embarked <- clean_Embarked(titanic_test$Embarked)
+titanic_test %>% count(Embarked)
+
+#
+# Fare
+#
+
+#Al set de test tenim 1 NA
+#Els completem amb el valor més freqüent
+#Discretitzem Fare - creem una rang per Fare de 4 convertim Fare a factor (Q1-Q4 son 4 valors)
+
+clean_Fare <- function (cp) {
+  #com a paràmetre rep una columna d'un dataframe que serà l'afectada
+  #asignamos els nulls o  "" el valor més freqüent freq_fare
+  fare_embarked <- tail(names(sort(table(cp))), 1)
+  #cp[cp==""] <- fare_embarked
+  cp[is.na(cp)] <- fare_embarked
+  #hem de convertit a numeric per poder fer els rangs
+  cp <- as.numeric(cp)
+  #discretitzem en base a generar un rang de 4 buckets bassat en quartiles
+  #la funció CutQ genera els rangs i ja els assigna segons el valor
+  fare_quartiles <- CutQ(cp)
+  #és una variable tipus factor que assignem a la variable de sortida
+  cp <- fare_quartiles
+  return(cp)
+}
+
+#Train
+titanic$Fare <- clean_Fare(titanic$Fare)
+titanic %>% count(Fare)
+
+#Test
+titanic_test$Fare <- clean_Fare(titanic_test$Fare)
+titanic_test %>% count(Fare)
+
+```
+
+Pels cas del missing values de la variable Age anem a fer una mica de tractament especial.
+
+Al tractar-se d'una variable cuantitativa continua ens interessa __omplir el missing values (que no son poc) d'una forma acurada__ i per altre banda, pensant en els anàlisis posteriors __ens interessa discretitzar aquesta variable__. 
+
+Per tant procedirem de la següent manera:
+
+1. predicció de valors fent servir altres features correlades (Age, Sex, Pclass), agafarem per cada combinació de Pclass-Sex la mediana del valor de Age, i aquest serà el que assignarem per a totes les combinacinos de Pclass-Sex que tinguin missing values o NA
+2. creem una nova feature AgeBand (5 intervals de edat) 
+3. substituim Age per AgeBand
+4. finalment podem esborrar la AgeBand
+
+```{r 3.3 Missing data Age}
+
+#creem la función per al tractament de la variable Age
+
+clean_Age <- function (df) {
+  #com a paràmetre rebem un data-frame complet perque necessitarem varies columnes
+  
+  #Necessitem com a pas previ discretitzar la variable Sex
+  df$Sex[df$Sex=='male'] <- 0
+  df$Sex[df$Sex=='female'] <- 1
+  df$Sex<-as.integer(df$Sex)
+
+  #1.matriu pels guessed values de age segons Sex i Pclass
+  pred_age <- matrix(nrow = 3, ncol = 2)
+  #2.càlcul de les medianes per a cada combinació de Pclass (i) 
+  for(i in 1:3) {
+    for(j in 1:2) { 
+      df_ages <- subset(df,Pclass==i & Sex==j-1)
+      pred_age[i,j]  <- median(df_ages$Age,na.rm=T)
+      }
+  }
+  #3.canviem els NA per a cada combinació de Pclass i Sex pel valor que hem calculat abans
+  for(i in 1:3) {
+    for(j in 1:2) { 
+      df$Age[is.na(df$Age) & df$Pclass ==i & df$Sex == j-1] <- pred_age[i,j] 
+    }
+  }
+  
+  #4.Creem els intervals de Age
+  df$Age_grouping <- cut(df$Age, breaks=c(0,16,32,48,64,100,140), right = FALSE, labels = FALSE)
+  #5.Assignem els intervals com a valor de Age
+  df$Age <- df$Age_grouping
+  #6.Esborrem la variable intermitja Age_grouping
+  df = df[,!(names(df) %in% c("Age_grouping"))]
+  
+  return(df)
+}
+
+#Train
+titanic <- clean_Age(titanic)
+titanic %>% count(Age)
+head(titanic)
+
+#Test
+titanic_test <- clean_Age(titanic_test)
+titanic_test %>% count(Age)
+head(titanic)
+
+
+```
+  
+
+\newpage
+
+```{r salt a exercici 4}
+
+
+```
+
+## __\textcolor{red}{4. Anàlisis de de les dades }__
+
+### __4.1 Selecció de dades.__
+
+\textcolor{blue}{Selecció dels grups de dades que es volen analitzar/comparar (planificació dels anàlisis a aplicar).}
+
+
+```{r 4.1 Seleccion de dades }
+
+
+```
+
+### __4.2 Comprovació de la normalitat i homegeneitat de la variança.__
+
+
+```{r 4.2 Comprovacio variança }
+
+
+```
+
+
+### __4.3 Aplicació proves estadístiques.__
+
+\textcolor{blue}{.}
+
+```{r 4.3.1 Contrastos de hipotesis}
+
+
+```
+
+#### __4.3.1.1 Interpretar contratos de hipotesis.__
+
+
+```{r 4.3.2 Correlacions}
+
+
+```
+
+#### __4.3.1.2 Interpretar correlacions.__
+
+
+```{r 4.3.3 Regressio Logaritmica}
+
+
+```
+
+#### __4.3.1.3. Interpretar regressió logaritmica__
+
+
+```{r 4.3.4 Altres models}
+
+
+```
+
+#### __4.3.1.4. Interpretar altres models__
+
+\newpage
+
+
+```{r salt a Visualitzacio}
+
+```
+
+## __\textcolor{red}{5. Visualització}__
+
+\textcolor{blue}{Representació dels resultats a partir de taules i gràfiques.}
+
+
+```{r 5.Visualitzacio}
+
+```
+
+\newpage
+
+```{r Conclussions}
+
+```
+
+## __\textcolor{red}{6. Conclussions}__
+
+\textcolor{blue}{Resolució del problema. A partir dels resultats obtinguts ¿quines son les conclussions? ¿els resultats permeten respondre el problema?}
