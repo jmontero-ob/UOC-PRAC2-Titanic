@@ -1,0 +1,946 @@
+---
+title: "Titanic - Learning from the Disaster"
+author: "Jose Antonio Montero, Mireia Mora"
+date: "04/01/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+#install.packages("Hmisc")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# __Introducció__
+
+El Titanic va ser el més gran vaixell de passatgers del món que després d'impactar amb un iceberg, es va enfonsar durant la nit del 14 i la matinada del 15 d'abril de 1912 durant el viatge inaugural que es va fer desde Southampton cap a Nova York.
+
+1502 persones de les 2224 que hi viatjaven van morir, i de tot aquest volum de gent hi havien grups de persones que tenien més probabilitats de sobreviure que unes altres.
+
+En aquesta pràctica utilitzarem les dades dels passatgers per tal de crear models que ens indiquin quines persones tenien més probabilitats de sobreviure.
+
+
+## __\textcolor{red}{1.Descripció del Dataset.}__
+
+¿Per què és important i quin/es problema/preguntes preten respondre?
+
+El dataset del Titanic és un dels més popular en l'anàlisis de dades per l'impacte que va tenir el succés.
+Principalment està orientat a __calcular la probabilitat de supervivència dels passatgers en funció de les seves característiques (edat, clase social, preu del passatge, familia, etc)__ però també dona lloc a fer-se preguntes de l'estil __si el preu del passatge dels que sobreviuen és més gran que el preu del passatge dels que moren__, per tant orientarem els nostres anàlisis per a respondre aquest tipus de preguntes.
+
+
+### __Lectura de dades.__
+
+En primer lloc, llegiu el fitxer de dades i verifiqueu que els tipus de dades són interpretats correctament. 
+Si s’escau, feu les conversions de tipus que siguin oportunes.
+
+- Llegirem els datasets "test" i "gender", i els combinarem en un únic fitxer a través de la columna PassengerId
+- Llegirem el dataset "train", i tindrem ja carregats tots dos fitxers per tal de realitzar les operacions.
+
+Farem crides a les funcions per tots dos fitxers de dades.
+
+```{r 1.Lectura de dades}
+library(readr)
+library(rmarkdown)
+library(knitr)
+
+## Selecció del directori de treball on es troben els documents que volem 
+setwd("C:/Users/mirei/OneDrive/Documentos")
+#setwd("D:/UOC_ML/S1-Tipologia i Cicle Vida Dades/PAC/PRAC2")
+
+# Llegim els datasets de test i gender per tal de realitzar una fusió posterior 
+#entre els dos fitxers
+titanic_test <- read.csv("titanic_test.csv", dec=".", stringsAsFactors = FALSE)
+titanic_gender<- read.csv("gender_submission.csv")
+
+# Fusionem els dos fitxers tenint en compte la variable PassengerId i l'ordre 
+#de les capçaleres de les columnes
+titanic_test = merge(x=titanic_gender, y=titanic_test, by=c("PassengerId"))
+
+# Llegim el dataset de train
+titanic <- read.csv("titanic.csv", dec=".", stringsAsFactors = FALSE)
+
+```
+
+En aquest moment ja tenim tots dos fitxers amb les variables per analitzar.
+
+- PassengerId : Codi d'identificació del passatger
+ - Survived : Supervivencia (0=No, 1=Sí)
+ - PClass : Classe, estatus del passatger (1=1ª, 2=2ª, 3=3ª)
+ - Name : Nom del passatger
+ - Sex : Sexe del passatger
+ - Age : Edat
+ - SibSp : número de germans/conjugues a bord del vaixell
+ - Parch : número de pares/fills a bord del vaixell
+ - Ticket : Número del ticket
+ - Fare : Tarifa del passatge
+ - Cabin : Número de cabina
+ - Embarked : Port d'embarcament (C=Cherburgo, Q=Queenstown, S=Southampton)
+
+\newpage
+
+## __\textcolor{red}{2.Integració i selecció de les dades d'interès a analitzar.}__
+
+En aquest apartat realitzarem la integració i l'exploració de dades fent crides a les funcions que crearem per tots dos fitxers, per tal de crear una estructura de dades coherent i única que contingui més quantitat d’informació, i relacionant atributs que ens permetin prescindir d'informació més redundant.Així mateix crearem noves variables a través d'unes altres ja existents.
+En aquest apartat i resumint, realitzarem el següent :
+
+- Discretitzarem la variable Sex factoritzant-la on female=1 i male=0
+ - Discretitzarem la variable Embarqued factoritzant-la on el port de Southampton (S=0), el port de Cherburgo (C=1) i el port de Queenstown (Q=2).
+ - Crearem nova variable "Titol" que contingui el titol (Mr, Mrs, Ms...) i la discretitzarem també per tal de poder analitzar posteriorment la probabilitat de supervivència sobre un titol o un altre.
+ - Crearem una nova variable "Familysize" sumant les columnes Sibsp i Parch que ens dirà el nombre de familiars que viatjaven amb un passatger
+ - Crearem una nova variable "Isalone" mirant els valors que conté la columna "Familysize", si és superior a 0 vol dir que el passatger anava acompanyat, si és 0 vol dir que el passatger anava sol.
+ 
+ - Eliminar la variable "Name", un cop creada i degudament omplerta la variable "Titol", ja que no ens aportarà res per l'anàlisi
+ - Eliminar les variables "Parch, SibSp, i FamilySize", un cop creada i omplerta la variable "Isalone".
+
+````{r 2. integracion y seleccion}
+
+library(dplyr)
+library(stringr)
+
+# Funció que converteix la columna amb la variable Sex i la convertim a Integer
+canvi_sex <- function(x)
+{
+   # Assignem el valor 1 a la columna Sex quan es trobi que el contingut és female  
+   x[x$Sex=="female","Sex"] = 1
+   x[x$Sex=="male","Sex"] = 0
+   x$Sex<-as.integer(x$Sex)
+  return(x)
+}
+
+# cridem a la funció canvi_sex
+titanic_test <- canvi_sex(titanic_test)
+titanic <- canvi_sex(titanic)
+
+str(titanic)
+
+# Funció que converteix la columna amb la variable Embarked depenent del port 
+#on hagi embarcat i la Factoritzem
+canvi_port <- function(x)
+{
+   
+   x[x$Embarked=="S","Embarked"] = "0"
+   x[x$Embarked=="C","Embarked"] = "1"
+   x[x$Embarked=="Q","Embarked"] = "2"
+ 
+   x$Embarked <-as.factor(x$Embarked)
+  return(x)
+}
+
+# cridem a la funció canvi_port
+titanic_test <- canvi_port(titanic_test)
+titanic <- canvi_port(titanic)
+
+str(titanic)
+
+# Creem la columna Titol amb valors NA inicialment
+titanic_test <- mutate(titanic_test, Titol="NA")
+titanic <- mutate(titanic, Titol="NA")
+
+# Funció que afegeix a la nova columna creada el titol de tractament que trobi 
+#a la columna Name del dataset
+assigna_titol <- function(x)
+{
+  # Creem un dataset amb les possibles titols de presentació de les persones
+  titulitis <- c("Master","Miss","Mr","Mrs","Dr","Rev","Mlle","Ms","Mme","Don",
+                 "Major","Col","Capt","Countess","Jonkheer")
+  
+  titulitis_c <- str_c(titulitis,collapse = "|")
+  x$Titol=str_extract(x$Name,titulitis_c)  
+  
+  return(x)
+}
+
+# cridem a la funció Assigna_titol
+titanic_test <- assigna_titol(titanic_test)
+titanic <- assigna_titol(titanic)
+
+str (titanic)
+
+# Funció que converteix el titol de tractament a la nova columna de string a 
+#numèric i després el factoritzem
+canvi_titol <- function(x)
+{
+  x[x$Titol=="Mr","Titol"] = "1"
+  x[x$Titol=="Don","Titol"] = "1"
+  x[x$Titol=="Miss","Titol"] = "2"
+  x[x$Titol=="Mlle","Titol"] = "2"
+  x[x$Titol=="Ms","Titol"] = "2"
+  x[x$Titol=="Mrs","Titol"] = "3"
+  x[x$Titol=="Mme","Titol"] = "3"
+  x[x$Titol=="Master","Titol"] = "4"
+  x[x$Titol=="Dr","Titol"] = "5"
+  x[x$Titol=="Rev","Titol"] = "5"
+  x[x$Titol=="Major","Titol"] = "5"
+  x[x$Titol=="Col","Titol"] = "5"
+  x[x$Titol=="Capt","Titol"] = "5"
+  x[x$Titol=="Countess","Titol"] = "5"
+  x[x$Titol=="Jonkheer","Titol"] = "5"
+  
+  x$Titol<-as.factor(x$Titol)
+  return(x)
+}
+
+titanic_test <- canvi_titol(titanic_test)
+titanic <- canvi_titol(titanic)
+
+str (titanic)
+
+# creació de la nova columna Familysize amb atributs de de les columnes SibSp i Parch
+titanic_test <- mutate(titanic_test, FamilySize=titanic_test$SibSp+titanic_test$Parch)
+titanic <- mutate(titanic, FamilySize=titanic$SibSp+titanic$Parch)
+
+str (titanic)
+
+# eliminem la columna Name ja que ja tenim creada i discretitzada la columna titol
+titanic_test$Name<-NULL
+titanic$Name<-NULL
+
+#creem nova variable Isalone on comprovarà si la columna Familysize es major 
+#que 0, si és així el passatger no era ell sol, sino que tenia més familiars, 
+#en canvi, si el valor era 0 vol dir que el passatger no tenia a ningú més a bord
+titanic_test<-mutate(titanic_test, Isalone=ifelse(titanic_test$FamilySize>0,1,0))
+titanic<-mutate(titanic, Isalone=ifelse(titanic$FamilySize>0,1,0))
+
+# eliminem les columnes Parch, Sibsp i Familysize ja que tenim creada i 
+#discretitzada la columna Isalone
+titanic_test$Parch<-NULL
+titanic_test$SibSp<-NULL
+titanic_test$FamilySize<-NULL
+
+titanic$Parch<-NULL
+titanic$SibSp<-NULL
+titanic$FamilySize<-NULL
+
+````
+\newpage
+
+## __\textcolor{red}{3. Neteja de dades.}__
+
+
+### __3.1 Reducció.__
+\textcolor{blue}{Dintre de la neteja de dades una de les opcions és la reducció que consisteix a eliminar variables redundants o que no estan relacionades amb el fet que es vol analitzar.}
+```{r 3.1	Reducció - esborrat atributs no necessaris}
+library(knitr)
+library(ggplot2)
+library(caret)
+library(tidyverse)
+library(DescTools)
+
+##Esborrarem les variables Cabin,Ticket,Name,PassengerId
+##Una vegada tiguem calculada la IsAlone també esborrarem Parch,SibSp i FamilySize
+titanic = titanic[,!(names(titanic) %in% c("Ticket","Cabin","Name","PassengerId"))]
+titanic_test = titanic_test[,!(names(titanic_test) %in% c("Ticket","Cabin","Name","PassengerId"))]
+
+```
+### __3.2 Identificació i tractament de valors extrems.__
+\textcolor{blue}{Tractament de outliers.} 
+En aquest apartat buscarem aquelles dades que es troben molt allunyades de la distribució normal de les variables que utilitzarem, és a dir, les desviacions d'aquells valors que representarem mitjançant gràfics boxplot de diferents variables: age, fare, pclass. Amb aquestes tres variables farem combinacions per tal de veure els valors extrems de :
+
+- Edat : buscarem aquells valors extrems per la variable de l'edat dels passatgers.
+ - Tarifa : buscarem aquells valors amb desviacions sobre la tarifa agafada per cada passatge.
+ - Tarifa per Classe : buscarem aquells valors extrems segons la tarifa del passatger segons la classe adquirida del passatge (1ª, 2ª o 3ª classe).
+ - Edat per Classe : buscarem aquells valors extrems de l'edat dels passatgers segons la classe ocupada al passatge del Titanic (1ª, 2ª o 3ª classe).
+
+```{r}
+
+titanic.bp<-boxplot(titanic$Age, horizontal = TRUE, col=c("orange"), main="Edat", 
+                    xlab="Franja d'Edat", ylab="Freqüència")
+summary(titanic$Age)
+titanic.bp$out
+
+titanic.bp$stats
+```
+El valor màxim respecte a la variable de l'edat és de 80 anys, mentre que la mitja d'edat és de 29,7 anys. El 50% de les vegades l'edat ha estat de 28 anys o inferior. Els outliers serien el resultat d'aquells valors que disten 3 cops el rang IQR por sota de Q1 o per sobre de Q3. 
+
+Calculariem primer el rang interquartílic (estimació estadística de la dispersií d'una distribució de dades) IQR = Q3 – Q1 = 38 - 20.12 = 17,88
+
+Els valors extrems del boxplot de l'edat dels passatgers serien, tots aquells valors que superin el mostreig de la tarifa de 64,82 anys, calculada a través de la següent fórmula:
+
+Q3 + 1,5 * IQR # 38 + 1,5 * 17,88 = 64,82
+
+Llistem amb la sentència titanic.bp$out els 8 valors extrems superiors a 64,82 anys que trobem al dataset train.
+Veiem en aquest punt que hi ha molts valors NA que en els propers apartats es solventarà.
+
+
+```{r 3.2.2 Outliers segons la tarifa adquirida pel passatge}
+
+boxplot(titanic$Fare,horizontal =TRUE, col=c("red"), main="Tarifa per passatger", 
+        xlab="Preu", ylab="Freqüència")
+summary(titanic$Fare)
+
+```
+El preu màxim de la tarifa adquirida és de 512,33, mentre que la mitja és de 32,20. El 50% de les vegades el preu ha estat de 14,45 o inferior. Aquesta mitjana està molt allunyada de la mitja, que seria una mica superior al doble de la mitjana. 
+
+En aquest cas el rang IQR seria:  IQR = Q3 – Q1 = 31 - 7.91 = 23,09
+
+Els valors extrems del boxplot de les tarifes dels passatgers serien, tots aquells valors que superin el mostreig de la tarifa de 65,63, calculada a través de la següent fórmula:
+
+Q3 + 1,5 * IQR # 31 + 1,5 * 23,09 = 65,63
+
+Com es veu en el gràfic trobem molts outliers superiors a aquest valor. No hi ha NA en aquesta variable, tots els valors es poden considerar vàlids per ser analitzats.
+
+
+```{r 3.2.3 Outliers segons la tarifa adquirida a cada classe del passatge}
+
+titanic.bp<-boxplot(titanic$Fare~titanic$Pclass, horizontal = TRUE, 
+                    col=c("green","orange","red"), main="Tarifa per classe", 
+                    xlab = "Tarifa", ylab = "Classe de ticket")
+titanic.bp$out
+
+```
+En aquest gràfic podem observar valors extrems a les tarifes de totes les classes. Observem que el valors extrems de tercera classe, comencen en una tarifa molt inferior als valors extrems de les tarifes de primera classe. Els valors extrems del preu de la tarifa augmenten la seva tarifa a mida que puja la classe d'estada del passatger al vaixell, d'aquesta manera, els passatgers de primera classe tenen valors extrems de tarifes de billet superiors, i els passatgers de tercera classe tenen valors extrems de preu de bitllet inferior.
+
+
+```{r}
+
+titanic.bp<-boxplot(titanic$Age~titanic$Pclass, horizontal = TRUE, 
+                    col=c("green","orange","red"), main="Edat per classe", 
+                    xlab = "Edat", ylab = "Classe de Ticket")
+titanic.bp$out
+
+```
+En aquest gràfic podem observar que els valors extrems es troben a segona i a tercera classe. El valor dels outliers que es troben a segona classe tenen una edat superior que els valors que es troben a tercera classe, on els valors extrems es troben amb un inici d'edat inferior.
+
+En aquest gràfic trobem també outliers a segona classe amb valors inferiors.
+
+\newpage
+
+### __3.3 Dades perdudes - missing data.__
+\textcolor{blue}{Les dades contenen ceros o elements buits? Com gestionaries cadascun d'aquests casos?.}
+Anem a evaluar quines variables tenen valors nulls o no informats (amb "") i les 
+completarem i discretitzarem si escau.
+Ademés, de cara a fer prediccions i sobretot si volem fer regressió logística és adequat que les variables convertides __quedin com a tipus factor__ en R.
+```{r 3.3 Missing data}
+#
+#missing values
+#
+colSums(is.na(titanic))
+#a train tenim bàsicament null values a Age, 177
+colSums(titanic=="")
+#a train tenim valors perduts no nulls a Cabin i a Embarked
+colSums(is.na(titanic_test))
+#a train tenim bàsicament null values a Age 86 i 1 a Fare
+colSums(titanic_test=="")
+#a train tenim valors perduts no nulls a Cabin 
+#
+# Embarked
+#
+#Al set de traing tenim 2 missing values que son "", no son pas NA
+#Els completem amb el valor més freqüent
+#Discretitzem Embarked - convertim Embarked a numeric (0-2 son 3 valors)
+#Crearem una funció on passem una columna de dataframe i ens la retorna 
+#discretitzada
+clean_Embarked <- function (cp) {
+  #asignamos los 2 "" el valor més freqüent freq_embarked
+  freq_embarked <- tail(names(sort(table(cp))), 1)
+  cp[cp==""] <- freq_embarked
+  #discretitzem
+  cp[cp=='S'] <- 0
+  cp[cp=='C'] <- 1
+  cp[cp=='Q'] <- 2
+  cp<-as.factor(cp)
+  return(cp)
+}
+#Train
+titanic %>% count(Embarked)
+titanic$Embarked <- clean_Embarked(titanic$Embarked)
+titanic %>% count(Embarked)
+#Test
+titanic_test %>% count(Embarked)
+titanic_test$Embarked <- clean_Embarked(titanic_test$Embarked)
+titanic_test %>% count(Embarked)
+#
+# Fare - crearem una nova variable però deixem l'original per a fer un test de 
+#hipòtesis posterior
+#
+#Al set de test tenim 1 NA
+#Els completem amb el valor més freqüent
+#Discretitzem Fare - creem una rang per Fare de 4 convertim Fare a factor 
+#(Q1-Q4 son 4 valors)
+clean_Fare <- function (cp) {
+  #com a paràmetre rep una columna d'un dataframe que serà l'afectada
+  #asignamos els nulls o  "" el valor més freqüent freq_fare
+  fare_embarked <- tail(names(sort(table(cp))), 1)
+  #cp[cp==""] <- fare_embarked
+  cp[is.na(cp)] <- fare_embarked
+  #hem de convertit a numeric per poder fer els rangs
+  cp <- as.numeric(cp)
+  #discretitzem en base a generar un rang de 4 buckets bassat en quartiles
+  #la funció CutQ genera els rangs i ja els assigna segons el valor
+  fare_quartiles <- CutQ(cp)
+  #és una variable tipus factor que assignem a la variable de sortida
+  cp <- fare_quartiles
+  return(cp)
+}
+#Train
+titanic <- titanic %>%
+  mutate(Fare_disc =  clean_Fare(titanic$Fare)
+  )
+#titanic$Fare <- clean_Fare(titanic$Fare)
+titanic %>% count(Fare_disc)
+#Test
+titanic_test <- titanic_test %>%
+  mutate(Fare_disc =  clean_Fare(titanic_test$Fare)
+  )
+#titanic_test$Fare <- clean_Fare(titanic_test$Fare)
+titanic_test %>% count(Fare_disc)
+```
+Pels cas del missing values de la variable Age anem a fer una mica de tractament especial.
+Al tractar-se d'una variable cuantitativa continua ens interessa __omplir el missing values (que no son poc) d'una forma acurada__ i per altre banda, pensant en els anàlisis posteriors __ens interessa discretitzar aquesta variable__. 
+Per tant procedirem de la següent manera:
+1. predicció de valors fent servir altres features correlades (Age, Sex, Pclass), agafarem per cada combinació de Pclass-Sex la mediana del valor de Age, i aquest serà el que assignarem per a totes les combinacinos de Pclass-Sex que tinguin missing values o NA
+2. creem una nova feature AgeBand (5 intervals de edat) 
+3. substituim Age per AgeBand
+4. finalment podem esborrar la AgeBand
+```{r 3.3 Missing data Age}
+#creem la función per al tractament de la variable Age
+clean_Age <- function (df) {
+  #com a paràmetre rebem un data-frame complet perque necessitarem varies columnes
+  
+  #Necessitem com a pas previ discretitzar la variable Sex
+  #df$Sex[df$Sex=='male'] <- 0
+  #df$Sex[df$Sex=='female'] <- 1
+  #df$Sex<-as.integer(df$Sex)
+  #1.matriu pels guessed values de age segons Sex i Pclass
+  pred_age <- matrix(nrow = 3, ncol = 2)
+  #2.càlcul de les medianes per a cada combinació de Pclass (i) 
+  for(i in 1:3) {
+    for(j in 1:2) { 
+      df_ages <- subset(df,Pclass==i & Sex==j-1)
+      pred_age[i,j]  <- median(df_ages$Age,na.rm=T)
+      }
+  }
+  #3.canviem els NA per a cada combinació de Pclass i Sex pel valor que hem calculat abans
+  for(i in 1:3) {
+    for(j in 1:2) { 
+      df$Age[is.na(df$Age) & df$Pclass ==i & df$Sex == j-1] <- pred_age[i,j] 
+    }
+  }
+  
+  #4.Creem els intervals de Age
+  df$Age_grouping <- cut(df$Age, breaks=c(0,16,32,48,64,100,140), right = FALSE, labels = FALSE)
+  #5.Assignem els intervals com a valor de Age
+  df$Age <- df$Age_grouping
+  #6.Esborrem la variable intermitja Age_grouping
+  df = df[,!(names(df) %in% c("Age_grouping"))]
+  
+  return(df)
+}
+#Train
+titanic <- clean_Age(titanic)
+titanic %>% count(Age)
+head(titanic)
+#Test
+titanic_test <- clean_Age(titanic_test)
+titanic_test %>% count(Age)
+head(titanic_test)
+```
+\newpage
+
+## __\textcolor{red}{4. Anàlisi de les dades.}__
+
+En aquest apartat realitzarem l'anàlisi o exploració de les dades, tot explicant les principals característiques d'aquestes dades ja netejades, per tal de poder resposndre a les preguntes plantejades d'aquesta pràctica.
+
+Regresion logaritmica per a predir si sobreviu o no --> fer diversos models (age, sex-class-fare-age, tots i comparar el AIC u overall$accuracy 
+		de confusionMatrix
+
+
+### __4.1 Selecció de dades.__
+
+Selecció dels grups de dades que es volen analitzar/comparar (planificació dels anàlisis a aplicar).
+
+Els grups els tenim clarament identificats en el sentit de que farem servir el cojunt de train (titanic) per a generar els models, i el conjunt de test (titanic_test) per a provar-lo o ajustar-lo, i obtenir la seva bondat (accuracy).
+
+Per centrant-nos en els diferents tipus d'anàlisis i en concret si volem fer un contrast de hipótesis per a validar si la mija dels preus (fare) dels que sobreviuen és més gran i igual que la dels que moren, crearem dos grups entorn a la variable preu : els preus dels que sobreviuen i els preus dels que moren
+
+```{r 4.1 Seleccion de dades }
+fare_vius = titanic$Fare[titanic$Survived==1]
+fare_morts = titanic$Fare[titanic$Survived==0]
+```
+### __4.2 Comprovació de la normalitat i homegeneitat de la variança.__
+
+Farem inicialment aquestes comprovacions per la variable Fare que és la que voldrem involucrar en el contrast de hipòtesis.
+
+Per la comprovació de normalitat ho farem de manera visual fent servir la funció qnorm
+```{r 4.2.1 Comprovacio normalitat }
+#1) Diagrama de punts de fare_vius i fare_morts
+par(mfrow=c(1,2))
+qqnorm(fare_vius,main="Fare survived distribution");qqline(fare_vius, col = 2,lwd=2,lty=2)
+qqnorm(fare_morts,main="Fare survived distribution");qqline(fare_morts, col = 2,lwd=2,lty=2)
+```
+Encara que tenim força punts fora de la línea recta podriem dir que la majora s'agrupen al voltat d'ella per tant donarem per supossat el factor de normalitat, encara que amb dubtes. Amb un conjunt de dades gran podriem arrivar a assumir el factor de normalitat però amb només 891 observaciones aquesta afirmació queda en entredit. De totes formes farem el contrast supossant normalitat.
+Per la comprovació de la homocedasticitat podem fer servir la funció var.test de R.
+
+```{r 4.2.2 Comprovacio variança }
+#Comprovem homocedasticitat - variances iguals
+var.test(x = fare_vius,y = fare_morts)
+```
+De la sortida de var.test podem veure que __el ratio of variances que és de 4.50 està dintre del interval de confiança de 95\%__, per tant el test no troba diferencies significatives entre les variances d'ambdos grups.
+
+### __4.3 Aplicació proves estadístiques.__
+\textcolor{blue}{Aplicació de proves estadístiques per a comparar els grups de dades. En funció de les dades i l'objectiu de l'estudi, aplicar proves de contrast de hipòtesis,
+correlacions, regressions, etc. Aplicar almenys 3 mètodes d'anàlisis diferents.}
+
+### __4.3.1 Contrastos de hipotesis.__
+Podem acceptar que el preu del passatge (Fare) és més gran en els que sobreviuen que en els que moren? Validarem aquest fet amb un contrast de hipòtesis per a la diferència de 2 mitjanes amb els suposits de normalitat i homocedasticitat, és a dir, aplicarem una t de Student.
+La hipòtesi nul.la H0 seria establir que __la mitjana de preus del passatge dels que sobreviuen es igual a la dels que no sobreviuen.__
+\textcolor{blue}{H0 : mean(Fare sobreviuen) = mean(Fare moren)}
+        
+        ó
+        
+\textcolor{blue}{H0 : mean(Fare sobreviuen) - mean(Fare moren) =  0}
+La hipòtesi alternativa H1 representa que s'ha produit algun canvi respecte la situació descrita per la hipòtesis nul.la. En aquest cas establirem el fet que realment volem comprovar al final, que la mitjana del preu del passatge del que sobreviuen és més gran que la dels que moren (és un contrast unilateral per la dreta).
+\textcolor{red}{H1 : mean(Fare sobreviuen) > mean(Fare moren)}
+        
+        ó 
+        
+\textcolor{red}{H1 : mean(Fare sobreviuen) - mean(Fare moren) > 0}
+Encara que podem utilitzar directament la funció t.test de R ens farem una funció propia que ens implementi el càlcul del nostre contrast
+```{r 4.3.1 Contrastos de hipotesis}
+#Contruim una funció que ens faci el contrast de la diferencia de 
+#mitjanes de 2 mostres en mode unilateral dret
+contrast_dif_mitjana_2_mostres <- function (p_mostra1,p_mostra2, p_alfa,p_tipus) 
+  {
+  
+  #p_mostra1 és la mostra 1
+  #p_mostra2 és la mostra 2
+  #p_alfa és el nivell de significació
+  
+  #H0 : mean(p_mostra1) - mean(p_mostra2) = 0 - hipòtesis nul.la
+  #H1 : mean(p_mostra1) - mean(p_mostra2) > 0 - hipòtesis alternativa
+  #Calculem tamany,mitjanes i desviacions típiques d'ambues mostres  
+  n_us = length(p_mostra1)                
+  n_nous = length(p_mostra2)                
+  mean_us = mean(p_mostra1)
+  mean_nous = mean(p_mostra2)
+  dev_tipica_us = sqrt(sum((p_mostra1-mean_us)^2)/(n_us-1))
+  dev_tipica_nous = sqrt(sum((p_mostra2-mean_nous)^2)/(n_nous-1))
+  #calculem estadístic t
+  #ditribució t-student amb n_us+n_nous - 2 graus de llibertat (398)
+  s = sqrt(((n_us-1)*dev_tipica_us^2+((n_nous-1)*dev_tipica_nous^2))/(n_us+n_nous-2))
+  s_error_std = s * sqrt((1/n_us)+(1/n_nous))
+  
+  t = (mean_us - mean_nous) / s_error_std
+  
+  #i finalment el p-value tenint en compte la distribució de t
+  #i la hipotesis alternativa
+  p_valor = case_when (p_tipus == 'uniesquerra' ~ pt(t,n_us+n_nous-2),
+                       p_tipus == 'unidreta' ~ pt(-t,n_us+n_nous-2),
+                       p_tipus == 'bidireccional' ~ 2*pt(t,n_us+n_nous-2)
+                       )
+    
+  #si p_value >= nivell de significació p_alfa, acceptarem la H0
+  #si p_value < nivell de significació p_alfa, rebutjarem la H0
+  
+  
+  if (p_valor >= p_alfa) {
+    ic = c(t,p_valor,'Acceptem Hipòtesi nul.la')
+  }
+  else
+  {
+    ic = c(t,p_valor,'Rebutgem Hipòtesi nul.la')
+  }
+    
+  return(ic)
+  
+}
+c_mitjanes = contrast_dif_mitjana_2_mostres(fare_vius,fare_morts,0.5,'unidreta')
+c_mitjanes
+#[1] t(estadístic) = "7.93919166087105"         p_valor = "3.06009467096209e-15"    
+#[3] Resultat : "Rebutgem Hipòtesi nul.la"
+#el p_value es pot dir que és infim i per tant més petit que 0.05 així que rebutjariem 
+#la Hipotesis nul.la
+#Comprovació amb t_test
+t.test( fare_vius, fare_morts, # dues mostres 
+        alternative = "greater", # contraste per resta de mitjanes
+        paired = FALSE, # muestras independientes
+        var.equal = TRUE,  # se supone homocedasticidad
+        conf.level=0.95)
+```
+#### __4.3.1.1 Interpretar contratos de hipotesis.__
+Com el __p-value (3.06e-15, que és la probabilitat del resultat del estadístic t quan la hipòtesis nul.la és certa) és més PETIT que el nivell d'acceptació (0,05) llavors REBUTGEM la Hipòtesis nul.la__ per tant això vol dir que confirmem que els preus del passatges del que sobreviuen és més gran el preu dels que moren.
+Per una altre banda, la sortida de la funció t.test ens està dient que __el p_value NO està dintre de l'interval d'acceptació de la hipòtesi nul.la__, per tant ens porta a rebutjar-la.
+Així mateix, el fet de que __l'estadístic de contrast sigui gran (7.9392)__ fa que estigui allunyat del cero (zona on la distribució normal estàndard concentra una probabilitat més gran), per tant __poc probable sota la hipòtesis nul.la.__ El fet d'haver plantejar una hipòtesi alternativa unilateral per la dreta fa també que aquest fet de tenir un valor positiu per l'estadístic de contrast, aquest sigui més probable sota la alternativa.
+
+### __4.3.2 Correlacions.__
+
+
+```{r 4.3.2 Correlacions}
+
+library(corrplot)
+library(Hmisc)
+
+#creem un nou dataframe amb les columnes numèriques
+titanic_cor <- titanic[, c("Pclass", "Sex", "Age","Fare","Isalone")]
+rcor <- cor(titanic_cor)
+rcor
+
+#i en format gràfic
+corrplot(rcor, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+```
+
+#### __4.3.2.1 Interpretar correlacions.__
+En aquest gràfic buscarem els cercles que siguin més grans i els de tonalitats més brillants, i ens fixem en el següent :
+
+- Fare i Pclass estan fortament relacionades. Les cabines de primera classe seran les que tinguin una tarifa més cara respecte a les de les altres classes.
+
+ - Pclass i Age estan també relacionades. La gent més adinerada tindrà una franja d'edat més elevada.
+ - Sex i Isalone tindrien una relació molt baixa. La gent sigui dona o home no té relació en classificar si està sola sense familiars a bord. Igual passarà amb Fare i  Isalone, on no hi haurà una correlació.
+ 
+### __4.3.3 Regressió Logarítmica.__
+
+```{r 4.3.3}
+
+#Necessitem convertir primer Survive com a factor
+titanic$Survived <- as.factor(titanic$Survived)
+titanic_test$Survived <- as.factor(titanic_test$Survived)
+
+titanic.train <- glm(Survived ~ Pclass + Sex + Age, family = binomial, data = titanic)
+summary(titanic.train)
+
+
+#odds ratio - per a interpretar el model
+exp(cbind("Odds ratio" = coef(titanic.train), confint.default(titanic.train, level = 0.95)))
+
+#Importancia de les variables
+varImp(titanic.train)
+
+#Confusion matrix i accuracy del model
+confusionMatrix(as.factor(as.numeric(predict(titanic.train, titanic_test)>=0.5)), titanic_test$Survived)$overall["Accuracy"]
+#0.84 --> molt bona accuracy per aquest model
+
+#Exemples de prediccions
+
+#predir la probabilitat de sobreviure de una dona de classe 3 de 32 anys
+pred_sobr1<-predict(titanic.train, data.frame(Pclass=3,Sex=1,Age=2),type ="response")
+pred_sobr1
+#0.59
+
+#predir la probabilitat de sobreviure d'un home de classe 1 de 52 anys
+pred_sobr2<-predict(titanic.train, data.frame(Pclass=1,Sex=0,Age=4),type ="response")
+pred_sobr2
+#0.31
+
+```
+
+#### __4.3.1.3. Interpretar regressió logaritmica__
+
+Normalment encara que podem extreure la Accuracy d'un model mitjançant la matriu de confussió (que en aquest cas resulta un model força ajustat amb un 0.84 d'accuracy), quan parlem d'una regressió logarítmica és habitual fer la interpretació mirant el ods-rati que hem obtingut. 
+
+Els _odds son la raó de la probabilitat d'ocurrència d'un succés entre la probabilitat de la seva NO ocurrència._
+
+Els __odds-rati (OR) es calculen com la raó entre els odds__, on la variable de resposta (la depenent) Y està present entre els individus i la variable independent X (els regressors) pot estar present o no, és a dir, prendre els valors X=1 e X=0. 
+
+Això ens dona un criteri de interpretació d'aquests odds-rati:
+1. Un OR = 1 significa que __NO hi ha associación entre la variable resposta i la covaraible__.
+2. Un __OR inferior a la unitat s’interpreta com un factor de protecció__, és a dir,
+el succés és menys probable en presència d’aquesta covariable.
+3. Un __OR major a la unitat s’interpreta com un factor de risc__, és a dir, el succés
+és més probable en presència d’aquesta covariable.
+
+Segons això pel nostre model tindriem:
+
+1. __Pclass__: el seu odds ratio és de 0.30, això vol dir que és menys probable que el passatge sobrevisqui en presència d’aquest regressor. De fet es pot concloure que __per cada unitat que augmenta el Pclass (la classe on viatja)__, si les altres variables es mantenen constants, __l’odds de sobreviure és 0.30 vegades menor__.
+
+Com el IC (Interval de Confiança) per aquest OR és de (0.23-0.38) és pot dir que __si augmenta el Pclass disminueix la probabiliat de sobreviure entre 0.23 i 0.38 vegades.__
+
+2. __Age__ : el seu odds ratio és de 0.61, això vol dir que és menys probable que el passatger sobrevisqui en presència d’aquest regressor. De fet es pot concloure que __per cada unitat que augmenta la Age (el interval de edat)__, si les altres variables es mantenen constants, __l’odds de sobreviure és 0.61 vegades menor__.
+
+Com el IC (Interval de Confiança) per aquest OR és de (0.47-0.77) és pot dir que __si augmenta el rang de l'edadt disminueix la probabiliat de sobreviure entre 0.47 i 0.77 vegades.__
+
+
+3. __Sex__ : el seu odds ratio és de 13.37, és a dir més gran que 1 amb diferència, això vol dir que és més probable que el passatger sobrevisqui en presència d’aquest regressor. De fet es pot concloure que __per cada unitat que augmenta el Sex (o sigui que sigui una dona)__, si les altres variables es mantenen constants, __l’odds de sobreviure és 13.37 vegades més gran__. Aquest indicador ens està dient que el fet de ser dona te una influència important en el fet de sobreviure.
+
+Com el IC (Interval de Confiança) per aquest OR és de (9.29-19.24) és pot dir que __si augmenta el Sex (o sigui que sigui una dona) augmenta la probabiliat de sobreviure entre 9.29 i 19.24 vegades.__
+
+De la sortida de la funció varImp també es conclou que és la variable que més efecte té en el model.
+
+En la simulació de prediccions es pot veure la diferència de probabilitats quan la observació és un home i una dona. __En el cas d'home tenim una prob. de 0.31 i en cas de dona 0.59, quasi el doble__.
+
+Anem a afegir totes les variables al model per veure si tenim canvis
+
+#### __4.3.1.4. Model logaritmic amb totes les variables__
+
+```{r 4.3.1.4 Model logaritmic amb totes les variables}
+
+titanic_lm_full <- glm(Survived ~ ., family = binomial, data = titanic)
+summary(titanic_lm_full)
+
+#odds ratio - per a interpretar el model
+exp(cbind("Odds ratio" = coef(titanic_lm_full), confint.default(titanic_lm_full, level = 0.95)))
+
+#Importancia de les variables
+varImp(titanic_lm_full)
+
+#Confusion matrix i accuracy del modelo
+confusionMatrix(as.factor(as.numeric(predict(titanic_lm_full, titanic_test)>=0.5)), titanic_test$Survived)$overall["Accuracy"]
+#0.8896 --> molt bona accuracy per aquest model
+
+#Exemples de prediccions
+
+#predir la probabilitat de sobreviure de una dona de classe 3 de 32 anys
+pred_sobr1_f<-predict(titanic_lm_full, data.frame(Pclass=3,Sex=1,Age=2,Fare=7.90,Embarked=as.factor("2"),Titol="1",Isalone=1,Fare_disc="Q1"),type ="response")
+pred_sobr1_f
+#0.99 amb titol 3, 0.80 amb titol 1, 0.71 amb isalone = 1
+
+#predir la probabilitat de sobreviure d'un home de classe 1 de 52 anys
+pred_sobr2_f<-predict(titanic_lm_full, data.frame(Pclass=1,Sex=0,Age=4,Fare=71.90,Embarked=as.factor("2"),Titol="1",Isalone=1,Fare_disc="Q4"),type ="response")
+pred_sobr2_f
+#0.28
+
+```
+
+Continuem tenim la variable Sex com la que més afecta en el model però a diferencia del model inicial ara la diferència amb d'altre variable com Pclass i els títols no és tan gran.
+
+Hem millorat lleugerament l'accuracy, passant ara a 0.88, el fet d'afegir més variable fa baixar els graus de llibertat i per tant millora el model.
+
+En les simulacions de prediccions observem la gran influencia del Sex al resultat, a més augmentat l'efecte per les variables Titol e IsAlone. Per exemple __per a una dona amb titol 3 i que NO viatja sola la probabilitat de sobreviure es de 0.99__, que baixa a 0.80 si tingués titol 1 i a 0.71 si viatgés sola.
+
+A continuació probarem un parell més de models per a comprovar si obtenim algun de més accuracy que la regressió logística.
+
+### __4.3.4 Random Forest.__
+
+```{r 4.3.4 Random Forest}
+library(caret)
+
+set.seed(14, sample.kind = "Rounding")
+
+gbmGrid <- expand.grid(
+  mtry = c(1:7)
+  )
+
+train_rf <- train(Survived ~ ., method = "rf", 
+                     data = titanic,
+                     tuneGrid = gbmGrid,
+                     ntree = 100
+)
+
+train_rf$results
+train_rf$bestTune
+#mtry =5 giving 0.8224079 accuracy
+
+# compute accuracy on test_set
+
+pr <- predict(train_rf, titanic_test)
+mean(pr == titanic_test$Survived)
+#0.64, molt més baixa que amb regressió logística
+
+#varImp
+varImp(train_rf)
+
+```
+
+No obtenim millor accuracy i veiem que en aquest model Sex i Fare son les variables amb més rellevencia i amb certa diferència.
+
+__La raó de que tinguin pitjor accuracy amb les dades de test pot ser degut a que hem tingut overfitting.__ En aquest cas tindrem un random forest massa profund, s'assemblarà molt al conjunt de training però donarà prediccions dolentes amb les dades de test.
+
+### __4.3.5 Classification Tree.__
+
+```{r 4.3.5 Classification Tree}
+
+set.seed(10, sample.kind = "Rounding")
+
+train_rpart <- train(Survived ~ .,
+                     method = "rpart",
+                     tuneGrid = data.frame(cp = seq(0, 0.05, 0.002)),
+                     data = titanic)
+plot(train_rpart)
+train_rpart$bestTune
+
+#predictors
+predictors(train_rpart$finalModel)
+
+pr_cl <- predict(train_rpart, titanic_test)
+mean(pr_cl == titanic_test$Survived)
+# compute accuracy on test_set
+# 0.6339
+
+```
+
+\newpage
+
+
+## __\textcolor{red}{5. Representació dels resultats a partir de taules i gràfiques.}__
+
+### __5.1. Matriu de confusió del model de regressió logística.__
+
+```{r}
+Prediccio <- predict(titanic.train, newdata = titanic, type = "response")
+
+# establim el punt de tall
+test_threshold <- 0.5
+titanic.pred <- ifelse(Prediccio>test_threshold, 1,0)
+
+# creem la matriu de confusió
+matriuconf <- confusionMatrix(data=factor(titanic.pred), reference = factor(titanic$Survived))
+matriuconf
+```
+El model té un 79,46% d'exactitud a la correcta classificació de les dades.
+Es va predir de manera correcta que 466 persones van sobreviure
+La taxa de sensibilitat a la classificació de les dades del 84,88%, classificant les dades de manera altament correcte.
+
+### __5.2. Representació del model de classificació.__
+
+Dibuixem el arbre de decissió
+
+```{r 5.2 Representació Classification Tree}
+predictors(train_rpart$finalModel)
+plot(train_rpart$finalModel, margin = 0.1)
+text(train_rpart$finalModel)
+
+```
+
+### __5.3. Gràfiques.__
+
+En aquest cas podem fer diverses gràfiques entre la variable depenent Survived i altres variables com per exemple:
+
+- Supervivencia segons edat. 
+ - Supervivencia segons la tarifa del passatge. 
+ - Supervivencia segons la Classe del passatger. 
+ - Supervivencia segons el Port d'embarcament del passatger. 
+ - Supervivencia segons el titol de les persones i la classe on es trobaven allotjats al vaixell. 
+
+```{r}
+library(ggplot2)
+
+# supervivencia per edat i també per gènere
+
+ggplot(titanic, aes(x=Age, fill=factor(Survived))) +
+  geom_histogram(bins=30)+
+  ggtitle("Supervivencia segons l'Edat")+
+  scale_fill_discrete(name="Supervivencia 0=NO i 1=SI")
+
+
+ggplot(titanic, aes(x=Age, fill=factor(Survived))) +
+  geom_histogram(bins=30)+
+  facet_grid(.~Sex)+
+  ggtitle("Supervivencia segons l'edat i Gènere (on Home=0 i Dona=1")+
+  scale_fill_discrete(name="Supervivencia 0=NO i 1=SI")
+
+t.test(Age ~ Survived, data=titanic)
+
+```
+
+Realitzem dues gràfiques, una per veure la supervivencia segons l'edat del passatger, i la segona per veure la supervivència segons l'edat del passatger i també del gènere (si eren homes o dones).
+
+Veient els resultats del t-test on ens indica que el p-value és 0,04119, inferior a 0,5, es pot treure la conclusió que l'edat dels passatgers supervivents era inferior, i per tant, els supervivents eren més joves que els passatgers que van morir. 
+
+Aquestes dades es poden comprovar també a la gràfica "Supervivencia segons l'Edat".
+
+En el gràfic amb títol "Supervivencia segons l'edat i Gènere", veiem dos gràfics de barres en paral·lel, on el gràfic de l'esquerre correpon als càlculs en homes (supervivencia per edat) i en el gràfic de la dreta es veuen el resultats de les dades per dones supervivents segons l'edat. 
+
+Podem concloure que la supervivencia de les dones (1) és major que la dels homes (0).
+
+\newpage
+
+```{r}
+
+# supervivencia per Tarifa del passatge
+ggplot(titanic, aes(x=Fare, fill=factor(Survived)))+
+  geom_histogram(bins=30)+
+  ggtitle("Supervivencia segons la tarifa del passatge")+
+  scale_fill_discrete(name="Supervivencia 0=NO i 1=SI")
+
+```
+
+Amb aquests gràfics veiem una forta relació entre la tarifa i la supervivencia dels passatgers. Aquells que van adquirir una tarifa molt més econòmica tenien possibilitats de supervivencia molt menors que les persones que van adquirir tarifes més elevades, que com veiem són molts menys bitllets però amb un índex de supervivencia més elevat.
+
+\newpage
+```{r}
+
+# Supervivencia per classe del passatge
+
+ggplot(titanic, aes(x=Pclass, fill=factor(Survived))) +
+  geom_bar()+
+  ylab("Frequency")+
+  ggtitle("Supervivencia segons la Classe del passatger")+
+  scale_fill_manual(values=c("red4", "green4"))
+
+```
+Observem que el nombre de passatgers més elevat eren passatgers de tercera classe, seguit dels de primera classe i a poca distancia dels de segona classe.
+Tenint en comtpe la quantitat de persones a cada classe, observem que els passatgers a Primera classe tenen un rati de més del 50% de supervivència. Els passatgers de Segona Classe tenen un rati del 50% de supervivència i els passatgers que viatjaven en 3ª classe tenen un rati molt més inferior de supervivència.
+
+\newpage
+```{r}
+
+# Supervivencia per Port d'embarcament
+
+ggplot(titanic, aes(x=Embarked, fill=factor(Survived))) +
+  geom_bar()+
+  ylab("Frequency")+
+  ggtitle("Supervivencia segons el Port d'embarcament")+
+  scale_fill_manual(values=c("red4", "green4"))
+
+```
+Segons el resultat de la gràfica podem veure que una molt gran quantitat de passatgers van embarcar al port de Southampton, seguits dels passatgers que van embarcar al port de Cherburgo, i en menor quantitat els que van embarcar al port de Queenstown. Si veiem el grau de supervivencia tenint en compte el nombre de passatgers que van embarcar a cada port, podriem dir que els passatgers que més van sobreviure del total embarcats van ser els del port de Cherburgo.
+
+\newpage
+```{r}
+
+# Supervivencia segons el titol de les persones i la classe on es trobaven allotjats al vaixell
+
+titanic$Pclass<-as.factor(titanic$Pclass)
+titanic$Titol<-as.integer(titanic$Titol)
+
+ggplot(titanic, aes(x=Titol, fill=factor(Survived))) +
+  geom_bar()+
+  facet_grid(.~Pclass)+
+  ggtitle("Supervivencia segons el Titol i PClass")+
+  scale_fill_discrete(name="Supervivencia 0=NO i 1=SI")
+
+titanic$Pclass<-as.integer(titanic$Pclass)
+titanic$Titol<-as.factor(titanic$Titol)
+
+```
+Mitjançant aquesta gràfica voliem veure si les variables titol tenien relació en el grau de supervivencia dels passatgers depenent de la classe on es trobessin. Veient la gràfica fem la següent lectura:
+- A la categoria pertanyent a Titol 1 (Mr-Don), el que primer veiem és que el nombre de passatgers d'aquest titol a tercera classe, és molt més elevat (més del doble) que en les altres dues classes. El grau de supervivencia es més elevat a primera classe que a segona i a tercera classe.
+
+ - De la categoria de Titol 2 (Miss-Mlle-Ms), si ens fixem en la supervivencia només, veiem que a totes 3 classes, aquesta és similar, però si ens fixem en la no supervivencia, veiem que realment apareix només amb un nombre elevat a tercera classe.
+ 
+ - En quant a la categoria 3 i 4 (Mrs-Mme i Master), veiem que a primera classe hi ha un grau de supervivencia màxim, a segona classe també (no hi ha passatgers a la categoria 3), i a tercera classe ens fixem que no hi ha passatgers en categoria 3, però a la 4 tot i que hi ha supervivents, aquests són molt inferiors (menys del 50%) als no supervivents.
+ 
+ - De la darrera categoria 5 (Don-Dr-Captain..), veiem que la majoria es troben a Primera i Segona classe, i entre aquests dos, el grau de supervivencia és molt més elevat a primera classe que a segona.
+ 
+
+\newpage
+
+## __\textcolor{red}{6. Resolució del problema.}__
+
+El principal problema a resoldre és __sapiguer quina probabilitat de sobreviure té un passatger en funció de les seves caracterísques__ : clase en la que viatja, edat, sexe, preu del passatge, etc. 
+
+Com la variable objecte del estudi (dependent) és dicotòmica en centrem en un model de regressió logística per a resoldre el problema, fent primer un model amb 3 variables regressores (Pclass, Sex i Age) i un altre amb totes les variables regresores posibles.
+
+Ademés com a complement, __ens interessa conèixer si el preu que es paga pel passagte (Fare) és més gran en els passatgers que sobreviuen__. Per a resoldre aquest problema plantegem un contrast de hipòtesis.
+
+Les conclussions obtingudes son:
+
+1. __Els models de regressió logística s'adequan molt bé al cas tractat__ donant un accuraccy per sobre de 0.80.
+
+2. La variable __Sex és la que més influència té en qualsevols dels casos.__ Les dones tenen més probabilitat de sobreviure que els homes (degut al fet que en els bots salvavides primer van dones i nens.)
+
+3. __Al augmentar el número de variable regressores millora l'adjusts del model__, degut sobretot a que reduim els graus de llibertat i a que incorporem altres variables importants com el Titol i el flag de viatjar sol o no (isAlone).
+
+4. __La variable Titol afegeix molt adjust al model__, ja que millora la importància de Pclass (podriem dir que son dos variables relacionades). En concret el valor 3 (Ms,Mme) va pujar la probabilitat al 0.99.
+
+5. Mitjançant el contrast de hipòtesis de la diferència de mitjanes concluim que __els passatger que sobreviuen paguen un passatge més car.__ Acceptem la hipotesis alternativa d'aquest contrast en base al valor de l'estadístic i p-value obtinguts, que en aquest cas és ínfim i per tant menor que el nivell de significació de 0.05. 
+
+6. __Utilitzant altres models predictius sembla que estem incorrem en overfitting__, amb el que obtenim models molt adjustats amb el train set però prediccions dolentes amb el test set.
+
+7. __Segons el model de classificació la primera variable discriminadora és Sex__. Després li segueixen Titol (valor 4), Fare i Pclass.
+
+
+\newpage
+
+## __7. Codi__
+La realització de la pràctica s'ha fet amb R mitjançant el RStudio. El resultat del codi realitzat és el fitxer Practica2.rmd adjuntat a la wiki de Github : https://github.com/jmontero-ob/UOC-PRAC2-Titanic
+
+```{r Sortida dels dataset nous}
+
+# Creem els dos nous datasets
+write.csv(titanic,file="titanic_net.csv")
+write.csv(titanic_test,file="titanic_test_net.csv")
+
+```
